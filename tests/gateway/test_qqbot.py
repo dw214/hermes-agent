@@ -408,6 +408,52 @@ class TestQQCloseError:
 
 
 # ---------------------------------------------------------------------------
+# _read_events terminal frame handling
+# ---------------------------------------------------------------------------
+
+class TestReadEventsCloseHandling:
+    @pytest.mark.asyncio
+    async def test_closing_frame_raises_instead_of_spinning(self):
+        """WSMsgType.CLOSING must raise so _listen_loop reconnects with backoff.
+
+        Regression guard for the 100% CPU spin (#41872): CLOSING fell through
+        the elif chain while ``ws.closed`` stayed False, so ``receive()`` was
+        re-invoked in a tight loop. Same defect class as the WeCom fix
+        (8dca28775).
+        """
+        import aiohttp
+
+        from gateway.platforms.qqbot import QQAdapter
+
+        adapter = QQAdapter(_make_config(app_id="a", client_secret="b"))
+        adapter._running = True
+
+        receive_count = 0
+
+        class FakeWS:
+            closed = False
+
+            async def receive(self):
+                nonlocal receive_count
+                receive_count += 1
+                if receive_count > 50:
+                    pytest.fail(
+                        "receive() called >50 times — CLOSING fell through "
+                        "the elif chain (CPU spin)"
+                    )
+                return mock.Mock(
+                    type=aiohttp.WSMsgType.CLOSING, data=None, extra=None
+                )
+
+        adapter._ws = FakeWS()
+
+        with pytest.raises(RuntimeError):
+            await adapter._read_events()
+
+        assert receive_count == 1
+
+
+# ---------------------------------------------------------------------------
 # _dispatch_payload
 # ---------------------------------------------------------------------------
 

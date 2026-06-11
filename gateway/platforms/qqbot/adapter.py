@@ -699,7 +699,14 @@ class QQAdapter(BasePlatformAdapter):
                 pass
             elif msg.type == aiohttp.WSMsgType.CLOSE:
                 raise QQCloseError(msg.data, msg.extra)
-            elif msg.type in {aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+            elif msg.type in {
+                aiohttp.WSMsgType.CLOSED,
+                aiohttp.WSMsgType.CLOSING,
+                aiohttp.WSMsgType.ERROR,
+            }:
+                # CLOSING included: it arrives while the close handshake is in
+                # progress (ws.closed still False), so falling through would
+                # re-invoke receive() in a tight loop — 100% CPU (#41872).
                 raise RuntimeError("WebSocket closed")
 
     async def _heartbeat_loop(self) -> None:
